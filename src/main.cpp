@@ -13,6 +13,10 @@ enum RenderStyle {
 	RayTrace
 };
 
+
+const int renderHeight = 1920;
+const int renderWidth = 1080;
+
 const bool use_validation_layers = false; //set to false for performance. Source None
 
 class VulkanApp {
@@ -31,12 +35,17 @@ private :
 	VkSurfaceKHR surface; 
 	VkDebugUtilsMessengerEXT debug_messenger;
 	SDL_Window* win;
+	VkSwapchainKHR swapchain;
+	VkFormat swapchainImageFormat;
+	std::vector<VkImage> swapchainImages;
+	std::vector<VkImageView> swapchainImageViews;
+	VkExtent2D swapchainExtent;
 	void init(){
 		if(!SDL_Init(SDL_INIT_VIDEO)){
 			throw std::runtime_error("Failed to initialize SDL\n");
 		}
-		this->win = SDL_CreateWindow("rendering test", 1920, 1080, SDL_WINDOW_VULKAN);
-		if(this->win == NULL){
+		win = SDL_CreateWindow("rendering test", renderHeight, renderWidth, SDL_WINDOW_VULKAN);
+		if(win == NULL){
 			throw std::runtime_error("Failed to create window\n");
 		}
 
@@ -53,11 +62,11 @@ private :
 			.build();
 
 		vkb::Instance vkbInstance = result.value();
-		this->instance = vkbInstance.instance;
-		this->debug_messenger = vkbInstance.debug_messenger;
+		instance = vkbInstance.instance;
+		debug_messenger = vkbInstance.debug_messenger;
 		//The NULL is the allocator and NULL will use the default vulkan allocator 
 		//source https://wiki.libsdl.org/SDL3/SDL_Vulkan_CreateSurface
-		SDL_Vulkan_CreateSurface(this->win, this->instance, NULL, &(this->surface));
+		SDL_Vulkan_CreateSurface(win, instance, NULL, &surface);
 
 		VkPhysicalDeviceVulkan13Features features13 { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
 		features13.dynamicRendering = true;
@@ -71,13 +80,37 @@ private :
 		vkb::PhysicalDeviceSelector selector{ vkbInstance};
 		vkb::PhysicalDevice physDevice = selector.set_minimum_version(1, 3)
 			.set_required_features_13(features13).set_required_features_12(features12)
-			.set_surface(this->surface).select().value();
+			.set_surface(surface).select().value();
 
 		vkb::DeviceBuilder deviceBuilder { physDevice};
 		vkb::Device vkbDevice = deviceBuilder.build().value();
 
-		this->gpu = vkbDevice.device;
-		this->phys_gpu = physDevice.physical_device;
+		gpu = vkbDevice.device;
+		phys_gpu = physDevice.physical_device;
+	}
+
+	void create_swapchain(){
+		vkb::SwapchainBuilder swapchainBuilder{ phys_gpu, gpu, surface};
+		swapchainImageFormat = VK_FORMAT_B8G8R8A8_UNORM; //magic number ahh format
+		vkb::Swapchain vkbSwapchain = swapchainBuilder
+			.set_desired_format(VkSurfaceFormatKHR{.format = swapchainImageFormat, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR})
+			.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+			.set_desired_extent(renderWidth, renderHeight)
+			.add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+			.build()
+			.value();
+
+		swapchainExtent = vkbSwapchain.extent;
+		swapchainImages = vkbSwapchain.get_images().value();
+		swapchainImageViews = vkbSwapchain.get_image_views().value();
+	}
+
+	void destory_swapchain(){
+		vkDestroySwapchainKHR(gpu, swapchain, nullptr);
+
+		for(int i = 0; i < swapchainImageViews.size(); i++){
+			vkDestroyImageView(gpu, swapchainImageViews[i], nullptr);
+		}
 	}
 
 	void mainLoop(){
@@ -99,6 +132,11 @@ private :
 	}
 
 	void cleanup(){
+		destory_swapchain();
+		vkDestroyDevice(gpu, nullptr);
+		vkDestroySurfaceKHR(instance, surface, nullptr);
+		vkb::destroy_debug_utils_messenger(instance, debug_messenger);
+		vkDestroyInstance(instance, nullptr);
 		SDL_DestroyWindow(win);
 		SDL_Quit();
 	}
