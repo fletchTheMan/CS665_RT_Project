@@ -48,7 +48,10 @@ add_subdirectory(third_party/assimp)
 add_subdirectory(src/rt)
 add_subdirectory(src/raster)
 
-add_executable(rendering src/main.cpp)
+add_executable(rendering
+    src/main.cpp
+    src/asset_importer.cpp
+)
 target_link_libraries(rendering PRIVATE
     Vulkan::Vulkan
     vk-bootstrap::vk-bootstrap
